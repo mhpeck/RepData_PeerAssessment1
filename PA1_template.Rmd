@@ -1,25 +1,135 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
+title: "Reproducible Research - Week 2 assignment"
+date: "6/23/2021"
 output: 
-  html_document:
-    keep_md: true
+  html_document: 
+    keep_md: true 
 ---
 
+## Overview
 
-## Loading and preprocessing the data
+This assignment conducts a series of analysis on personal movement data, collected via activity monitoring devices. The devices collect data at 5 minute intervals throughout the day. This data consists of 2 months of anonymous data collected between October and November 2012, and measure the number of steps taken during each interval. 
 
+The data can be found here: [Activity monitoring data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip)
 
+The variables included are:
 
-## What is mean total number of steps taken per day?
+* **steps**: Number of steps taking in a 5-minute interval (missing values are coded as NA)
+* **date**: The date on which the measurement was taken in YYYY-MM-DD format
+* **interval**: Identifier for the 5-minute interval in which measurement was taken
 
+This analysis proceeds through the following steps:
 
+1. Load and process the data 
+2. Investigate mean total number of steps per day 
+3. Look at average daily pattern across intervals
+4. Investigate / impute missing values
+5. Analyze differences across weekends and weekdays
 
-## What is the average daily activity pattern?
+## 1) Load and process data 
 
+We'll first download and read in the csv file into a dataframe, and then look into some summary information.
 
+```{r echo=TRUE}
+ProjectfileURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+if(!file.exists("repdata_data_2Factivity.zip")){
+        download.file(ProjectfileURL, "repdata_data_2Factivity.zip", method = "curl")
+        unzip("repdata_data_2Factivity.zip")
+} #download and unzip file if not exists
+rawdata <- read.csv("activity.csv") #load data into df
+head(rawdata)
+str(rawdata)
+```
+Two observations from the above: 1) steps has missing values (we will come to those later), and 2) date is not formatted as a date - let's address that now.
 
-## Imputing missing values
+```{r echo=TRUE}
+rawdata$date <- as.Date(rawdata$date, format = "%Y-%m-%d") #convert date column to date
+str(rawdata)
+```
 
+## 2) Investigate mean total number of steps per day
+First, we'll calculate total step count by day, then will create a histogram of step count to show frequency, and then calculate the mean/median of step count.
 
+```{r echo=TRUE}
+steps_perday <- with(rawdata, aggregate(steps, by=list(date), FUN=sum, na.rm = FALSE)) #aggregate by day
+head(steps_perday)
+hist(steps_perday$x, breaks = 10, main = "Total Steps per Day", xlab = "Step Count")
+mean(steps_perday$x, na.rm = TRUE)
+median(steps_perday$x, na.rm = TRUE)
+```
 
-## Are there differences in activity patterns between weekdays and weekends?
+## 3) Look at average daily pattern across intervals
+Here we'll first calculate the average step count by interval, and then look at a time-series plot by interval across a typical day. Then we'll identify the 5-minute interval with the maximum number of steps.
+
+```{r echo=TRUE}
+steps_byinterval <- with(rawdata, aggregate(steps, by=list(interval), FUN=mean, na.rm = TRUE)) # aggregate by interval
+head(steps_byinterval)
+plot(steps_byinterval$Group.1, steps_byinterval$x, type="l", 
+        main="Average Number of Steps Taken - By Interval", xlab="Interval", 
+        ylab="Average Step Count")
+steps_byinterval[which.max(steps_byinterval$x), 1] # identify interval with max step count
+```
+
+## 4) Investigate / impute missing values
+To handle the missing step count values, we'll first look into how many there are, and then replace them with the average number of steps for that interval. This strategy is not perfect, but should serve as a reasonable proxy for the missing information to reduce the chance of bias entering our analysis. We'll create a new dataset, and see how the mean/median compares to our previous calculations. 
+
+First, look at how many missing values there are:
+```{r echo=TRUE}
+table(is.na(rawdata$steps))
+```
+
+We see there are 2304 missing values.
+
+Next, merge with the dataset created as part of step (3) above, and use it to replace the missing values.
+```{r echo=TRUE}
+merged_byinterval <- merge(x=rawdata, y=steps_byinterval, by.x="interval", by.y="Group.1") # merge data to identify average step count by interval
+index <- c(1:length(merged_byinterval$interval))
+for(i in index){
+        if(is.na(merged_byinterval$steps[i])==TRUE){
+                merged_byinterval$steps[i] <- merged_byinterval$x[i]}
+        rawdata_noNA <- merged_byinterval
+}
+```
+
+Aggregate, create a histogram, and look at median/mean:
+```{r echo=TRUE}
+steps_perday_noNA <- with(rawdata_noNA, aggregate(steps, by=list(date), FUN=sum, na.rm = TRUE))
+hist(steps_perday_noNA$x, breaks = 10, main = "Total Steps per Day", xlab = "Step Count")
+mean(steps_perday_noNA$x, na.rm = TRUE)
+median(steps_perday_noNA$x, na.rm = TRUE)
+```
+
+We see that the mean has stayed the same, but the median has shifted slightly - after imputing missing values, the mean and median for the updated dataset are the same. Overall the values are very close.
+
+## 5) Analyze differences across weekends and weekdays
+We'll use the weekdays() function here to create a new factor variable that groups weekends and weekdays together, to analyze behavior differences across weekends/weekdays. We'll then plot the two to compare.
+
+```{r echo = TRUE}
+wd_index <- c(1:length(rawdata_noNA$date)) 
+weekdays_factor <- c()
+for(i in wd_index){
+if(weekdays(rawdata_noNA$date[i]) == "Monday" | 
+   weekdays(rawdata_noNA$date[i]) == "Tuesday" |
+   weekdays(rawdata_noNA$date[i]) == "Wednesday" |
+   weekdays(rawdata_noNA$date[i]) == "Thursday" |
+   weekdays(rawdata_noNA$date[i]) == "Friday"){
+        weekdays_factor <- c(weekdays_factor, "weekday")
+} else if (weekdays(rawdata_noNA$date[i]) == "Saturday" | 
+           weekdays(rawdata_noNA$date[i]) == "Sunday") {
+        weekdays_factor <- c(weekdays_factor, "weekend")
+}
+        weekdays_factor
+}
+data_inter <- cbind(rawdata_noNA, weekdays_factor) # Create new dataset adding the new factor variable
+head(data_inter)
+```
+
+Aggregate and create a plot of weekends vs. weekdays:
+
+```{r echo=TRUE}
+library(lattice)
+steps_int_wd <- with(data_inter, aggregate(steps, by=list(weekdays_factor, interval), FUN=mean, na.rm = TRUE))
+xyplot(x ~ Group.2 | Group.1, data = steps_int_wd, layout = c(1,2), 
+       type = "l", ylab="Average Step Count", xlab="Interval", 
+       main="Average Steps Taken - By Interval and weekend/weekday")
+```
